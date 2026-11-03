@@ -10,38 +10,32 @@ use crate::traits::{RegionAccess, RegionRead};
 const LOCATION_TABLE_BYTES: usize = 1024 * 4;
 const TIMESTAMP_TABLE_BYTES: usize = 1024 * 4;
 
-pub struct AnvilReader<B: AsRef<[u8]>>
+pub struct AnvilReader<'a>
 {
     x: i32,
     z: i32,
     location_table: Box<[LocationEntry; 1024]>,
     timestamp_table: Box<[u32; 1024]>,
-    data: B,
+    data: &'a [u8],
     chunks: Box<[Option<Chunk>; 1024]>,
 }
 
-impl<B: AsRef<[u8]>> RegionRead<B> for AnvilReader<B> {
-    fn from_bytes(bytes: B, x: i32, z: i32) -> Result<Self> {
-        let location_table = read_location_table(bytes.as_ref())?;
-        let timestamp_table = read_timestamp_table(bytes.as_ref())?;
+impl<'a> RegionRead<'a> for AnvilReader<'a> {
+    fn from_bytes(bytes: &'a [u8], x: i32, z: i32) -> Result<Self> {
+        let location_table = read_location_table(bytes)?;
+        let timestamp_table = read_timestamp_table(bytes)?;
         Ok(Self {
-            x, z, location_table, timestamp_table,
+            x,
+            z,
+            location_table,
+            timestamp_table,
             data: bytes,
             chunks: Box::new([const { None }; 1024]),
         })
     }
 }
 
-impl AnvilReader<Vec<u8>> {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> Result<Self> {
-        <Self as RegionRead<Vec<u8>>>::from_path(path)
-    }
-    pub fn from_reader<R: Read>(reader: &mut R, x: i32, z: i32) -> Result<Self> {
-        <Self as RegionRead<Vec<u8>>>::from_reader(reader, x, z)
-    }
-}
-
-impl<B: AsRef<[u8]>> RegionAccess for AnvilReader<B> {
+impl RegionAccess for AnvilReader<'_> {
     fn get_pos(&self) -> XzPos {
         XzPos::new(self.x, self.z)
     }
@@ -145,7 +139,7 @@ impl<B: AsRef<[u8]>> RegionAccess for AnvilReader<B> {
     }
 }
 
-impl<B: AsRef<[u8]>> AnvilReader<B> {
+impl AnvilReader<'_> {
     fn init_chunk_for_slot(&mut self, slot: u16) -> Result<()> {
         let Self { x, z, location_table,
             data, chunks, .. } = self;

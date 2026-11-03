@@ -1,37 +1,14 @@
-use std::fmt::Write;
-use std::fs::File;
-use std::io::{BufReader, Read};
+use std::io::Write;
 use std::path::Path;
 
 use anyhow::Result;
 use crate::helper::{get_xz_for_path, slot_of};
 use crate::structs::{Chunk, XzPos};
 
-pub trait RegionRead<B: AsRef<[u8]>> {
-    fn from_bytes(bytes: B, x: i32, z: i32) -> Result<Self>
+pub trait RegionRead<'a> {
+    fn from_bytes(bytes: &'a [u8], x: i32, z: i32) -> Result<Self>
     where
         Self: Sized;
-
-    fn from_reader<R: Read>(reader: &mut R, x: i32, z: i32) -> Result<Self>
-    where
-        Self: Sized,
-        B: From<Vec<u8>>,
-    {
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes)?;
-        Self::from_bytes(B::from(bytes), x, z)
-    }
-
-    fn from_path<P: AsRef<Path>>(path: P) -> Result<Self>
-    where
-        Self: Sized,
-        B: From<Vec<u8>>,
-    {
-        let file = File::open(&path)?;
-        let mut reader = BufReader::new(file);
-        let pos = get_xz_for_path(&path)?;
-        Self::from_reader(&mut reader, pos.x, pos.z)
-    }
 }
 
 /// 对区域（region）的读写访问抽象
