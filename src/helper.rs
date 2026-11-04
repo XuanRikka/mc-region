@@ -1,7 +1,6 @@
 use std::path::Path;
 
-use anyhow::{anyhow, Result, Context};
-
+use crate::error::{RegionError, Result};
 use crate::structs::XzPos;
 
 pub fn get_xz_for_path<P: AsRef<Path>>(path: P) -> Result<XzPos>
@@ -9,25 +8,32 @@ pub fn get_xz_for_path<P: AsRef<Path>>(path: P) -> Result<XzPos>
     let path = path.as_ref();
     if path.is_empty()
     {
-       return Err(anyhow!("path not found"))
+        return Err(RegionError::PathMissing { path: path.to_path_buf() });
     }
     if !path.is_file()
     {
-        return Err(anyhow!("path not is file"))
+        return Err(RegionError::NotAFile { path: path.to_path_buf() });
     }
-
 
     let name = path
         .file_stem()
         .and_then(|s| s.to_str())
-        .ok_or_else(|| anyhow!("invalid file name: {:?}", path))?;
+        .ok_or_else(|| RegionError::InvalidFileName { path: path.to_path_buf() })?;
 
     let mut it = name.rsplit('.');
-    let z = it.next().ok_or_else(|| anyhow!("missing z in {name}"))?;
-    let x = it.next().ok_or_else(|| anyhow!("missing x in {name}"))?;
+    let z = it
+        .next()
+        .ok_or_else(|| RegionError::MissingCoordinate { axis: "z", name: name.to_owned() })?;
+    let x = it
+        .next()
+        .ok_or_else(|| RegionError::MissingCoordinate { axis: "x", name: name.to_owned() })?;
 
-    let z: i32 = z.parse().with_context(|| format!("invalid z: {z}"))?;
-    let x: i32 = x.parse().with_context(|| format!("invalid x: {x}"))?;
+    let z: i32 = z
+        .parse()
+        .map_err(|_| RegionError::InvalidCoordinate { axis: "z", value: z.to_owned() })?;
+    let x: i32 = x
+        .parse()
+        .map_err(|_| RegionError::InvalidCoordinate { axis: "x", value: x.to_owned() })?;
 
     Ok(XzPos::new(x, z))
 }

@@ -1,8 +1,8 @@
-use std::io::Write;
+use std::io::{Seek, Write};
 use std::path::Path;
 
-use anyhow::Result;
-use crate::helper::{get_xz_for_path, slot_of};
+use crate::error::Result;
+use crate::helper::slot_of;
 use crate::structs::{Chunk, XzPos};
 
 pub trait RegionRead<'a> {
@@ -17,11 +17,19 @@ pub trait RegionAccess
     /// 获取 region 的XZ坐标
     fn get_pos(&self) -> XzPos;
 
+    /// slot即行优先的Region的槽位
+    fn chunk_at_slot(&mut self, slot: u16) -> Result<&Chunk>;
+
+    fn take_chunk_at_slot(&mut self, slot: u16) -> Result<Chunk>;
+
+    /// 语义同 `chunk_at_slot`，返回可变引用
+    fn chunk_at_slot_mut(&mut self, slot: u16) -> Result<&mut Chunk>;
+
     /// 通过一个Chunk在全局的坐标来获取Chunk，如果在Region内不存在这个坐标则返回None
     fn chunk_at(&mut self, x: i32, z: i32) -> Result<Option<&Chunk>>
     {
         match slot_of(self.get_pos(), x, z) {
-            Some(slot) => self.chunk_at_slot(slot),
+            Some(slot) => Ok(Some(self.chunk_at_slot(slot)?)),
             None => Ok(None),
         }
     }
@@ -30,55 +38,45 @@ pub trait RegionAccess
     fn chunk_at_mut(&mut self, x: i32, z: i32) -> Result<Option<&mut Chunk>>
     {
         match slot_of(self.get_pos(), x, z) {
-            Some(slot) => self.chunk_at_slot_mut(slot),
+            Some(slot) => Ok(Some(self.chunk_at_slot_mut(slot)?)),
             None => Ok(None),
         }
     }
 
-    /// slot即行优先的Region的槽位
-    fn chunk_at_slot(&mut self, slot: u16) -> Result<Option<&Chunk>>;
-
-    /// 语义同 `chunk_at_slot`，返回可变引用
-    fn chunk_at_slot_mut(&mut self, slot: u16) -> Result<Option<&mut Chunk>>;
+    fn take_chunk_at(&mut self, x: i32, z: i32) -> Result<Option<Chunk>>
+    {
+        match slot_of(self.get_pos(), x, z) {
+            Some(slot) => Ok(Some(self.take_chunk_at_slot(slot)?)),
+            None => Ok(None),
+        }
+    }
 
     /// 按照行优先顺序遍历区块
-    fn chunks(&mut self) -> impl Iterator<Item = Result<Option<&Chunk>>>;
+    fn chunks(&mut self) -> impl Iterator<Item = Result<&Chunk>>;
 
     /// 按照行优先顺序遍历区块，返回可变引用
-    fn chunks_mut(&mut self) -> impl Iterator<Item = Result<Option<&mut Chunk>>> + '_;
+    fn chunks_mut(&mut self) -> impl Iterator<Item = Result<&mut Chunk>>;
 
     /// 按照对应格式最优的方法遍历区块
-    fn chunks_native(&mut self) -> impl Iterator<Item = Result<Option<&Chunk>>>
+    fn chunks_native(&mut self) -> impl Iterator<Item = Result<&Chunk>>
     {
         self.chunks()
     }
 
     /// 按照对应格式最优的方法遍历区块，返回可变引用
-    fn chunks_native_mut(&mut self) -> impl Iterator<Item = Result<Option<&mut Chunk>>>
+    fn chunks_native_mut(&mut self) -> impl Iterator<Item = Result<&mut Chunk>>
     {
         self.chunks_mut()
     }
 
     /// 按照行优先顺序遍历区块并move数据
-    fn take_chunks(&mut self) -> impl Iterator<Item = Result<Option<Chunk>>>;
+    fn take_chunks(&mut self) -> impl Iterator<Item = Result<Chunk>>;
 
     /// 按照对应格式最优的方法遍历区块并move数据
-    fn take_chunks_native(&mut self) -> impl Iterator<Item = Result<Option<Chunk>>>
+    fn take_chunks_native(&mut self) -> impl Iterator<Item = Result<Chunk>>
     {
         self.take_chunks()
     }
-
-    /// 按全局坐标写入 chunk。`Some` 放入或覆盖该位置，`None` 删除该位置。
-    /// 越界坐标静默忽略（由 `slot_of` 返回 None 保证）。
-    fn set_chunk(&mut self, chunk: Option<Chunk>, x: i32, z: i32)
-    {
-        if let Some(slot) = slot_of(self.get_pos(), x, z) {
-            self.set_chunk_slot(chunk, slot);
-        }
-    }
-
-    /// 按 slot 写入 chunk。`Some` 放入或覆盖该槽位，`None` 清空该槽位
-    fn set_chunk_slot(&mut self, chunk: Option<Chunk>, slot: u16) -> Result<()>;
 
     /// 判断全局坐标 `(x, y)` 处是否存在 chunk
     fn contains_chunk(&mut self, x: i32, z: i32) -> Result<bool>;
@@ -87,17 +85,17 @@ pub trait RegionAccess
     fn contains_chunk_slot(&mut self, slot: u16) -> Result<bool>;
 
     /// 返回 region 中现存 chunk 的总数
-    fn chunk_count(&self) -> usize;
+    fn chunk_count(&mut self) -> Result<usize>;
 
     /// 当 region 中没有任何 chunk 时返回 `true`，等价于 `chunk_count() == 0`
-    fn is_empty(&self) -> bool
+    fn is_empty(&mut self) -> Result<bool>
     {
-        self.chunk_count() == 0
+        Ok(self.chunk_count()? == 0)
     }
 }
 
-pub trait RegionWrite {
-    fn to_writer<R: RegionAccess, W: Write>(&self, region: &R, writer: &mut W);
-    fn to_path<R: RegionAccess, P: AsRef<Path>>(&self, region: &R, path: P);
-    fn to_bytes<R: RegionAccess>(&self, region: &R);
+pub trait RegionWriter {
+    fn to_writer<R: RegionAccess, W: Write + Seek>(&self, region: &mut R, writer: &mut W) -> Result<()>;
+    fn to_path<R: RegionAccess, P: AsRef<Path>>(&self, region: &mut R, path: P) -> Result<()>;
+    fn to_bytes<R: RegionAccess>(&self, region: &mut R) -> Result<Vec<u8>>;
 }
