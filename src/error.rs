@@ -30,10 +30,10 @@ pub enum RegionError {
         value: String,
     },
 
-    /// 文件长度不足以容纳位置表 / 时间戳表。
-    #[error("{table} 数据不足: 需要至少 {need} 字节, 实际 {got} 字节")]
-    TableTooShort {
-        table: &'static str,
+    /// 文件长度不足
+    #[error("{name} 数据不足: 需要至少 {need} 字节, 实际 {got} 字节")]
+    DataTooShort {
+        name: &'static str,
         need: usize,
         got: usize,
     },

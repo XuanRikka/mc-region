@@ -140,19 +140,9 @@ dependencies = [
  "byteorder",
  "flate2",
  "lz4-java-wrc",
- "memmap2",
  "thiserror",
  "zerocopy",
  "zstd",
-]
-
-[[package]]
-name = "memmap2"
-version = "0.9.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b0ca1155a9ecc25aa12e8313a119f32edf0255fea2f44839c4ac0a12b2ac157"
-dependencies = [
- "libc",
 ]
 
 [[package]]

@@ -21,14 +21,14 @@ pub struct AnvilReader<'a>
 
 impl<'a> RegionRead<'a> for AnvilReader<'a> {
     fn from_bytes(bytes: &'a [u8], x: i32, z: i32) -> Result<Self> {
-        let header_bytes = bytes.get(..HEADER_LENGTH).ok_or(RegionError::TableTooShort {
-            table: "区域文件头",
+        let header_bytes = bytes.get(..HEADER_LENGTH).ok_or(RegionError::DataTooShort {
+            name: "区域文件头",
             need: HEADER_LENGTH,
             got: bytes.len(),
         })?;
         let header: &AnvilHeader =
-            FromBytes::ref_from_bytes(header_bytes).map_err(|_| RegionError::TableTooShort {
-                table: "区域文件头",
+            FromBytes::ref_from_bytes(header_bytes).map_err(|_| RegionError::DataTooShort {
+                name: "区域文件头",
                 need: HEADER_LENGTH,
                 got: header_bytes.len(),
             })?;
