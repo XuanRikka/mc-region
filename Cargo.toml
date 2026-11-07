@@ -4,21 +4,26 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-flate2 = { version = "1.1.9", default-features = false }
-zstd = { version = "0.13.3", optional = true, default-features = false, features = ["arrays", "legacy", "fat-lto"] }
+flate2 = { version = "1.1.11", optional = true, default-features = false }
+zstd = { version = "0.14.3", optional = true, default-features = false, features = [] }
 lz4-java-wrc = { version = "0.2.0", optional = true }
 byteorder = "1.5.0"
 thiserror = "2.0"
+
 zerocopy = { version = "0.8.63", features = ["derive"] }
+xxhash-rust = { version = "0.8.15", features = ["xxh64", "xxh32"] }
 
 [features]
 default = ["zlib-rs", "lz4", "zstd"]
 
-zlib-rs = ["flate2/zlib-rs"]
-miniz-oxide = ["flate2/miniz_oxide"]
-zlib = ["flate2/zlib"]
-zlib-ng = ["flate2/zlib-ng"]
+zlib-rs = ["dep:flate2", "flate2/zlib-rs"]
+flate2-zlib = ["dep:flate2", "flate2/zlib"]
+flate2-zlib-ng = ["dep:flate2", "flate2/zlib-ng"]
+flate2-miniz-oxide = ["dep:flate2", "flate2/miniz_oxide"]
 
 lz4 = ["dep:lz4-java-wrc"]
-
 zstd = ["dep:zstd"]
+
+[[example]]
+name = "test"
+

@@ -75,34 +75,44 @@ pub enum AnvilCompressionType {
     Gzip = 1,
     Zlib = 2,
     Uncompressed = 3,
-    Lz4 = 4
+    Lz4 = 4,
 }
 
-impl AsRef<u8> for AnvilCompressionType {
+impl From<AnvilCompressionType> for u8 {
     #[inline]
-    fn as_ref(&self) -> &u8 {
-        match self {
-            AnvilCompressionType::Gzip => &1u8,
-            AnvilCompressionType::Zlib => &2u8,
-            AnvilCompressionType::Uncompressed => &3u8,
-            AnvilCompressionType::Lz4 => &4u8
+    fn from(v: AnvilCompressionType) -> u8 {
+        v as u8
+    }
+}
+
+pub struct AnvilConfig {
+    pub compression_level: u32,
+    pub compression_type: u8,
+}
+
+impl Default for AnvilConfig {
+    fn default() -> Self {
+        Self {
+            compression_level: 6,
+            compression_type: AnvilCompressionType::Zlib as u8,
         }
     }
 }
 
-pub struct AnvilConfig
-{
-    pub compression_level: u32,
-    pub compression_type: u8
-}
-
 impl AnvilConfig {
-    pub fn new<T: AsRef<u8>>(compression_level: u32, compression_type: T) -> AnvilConfig
-    {
-        AnvilConfig
-        {
-            compression_level,
-            compression_type: *compression_type.as_ref()
-        }
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置压缩等级，不调用则用默认值 6
+    pub fn compression_level(mut self, level: u32) -> Self {
+        self.compression_level = level;
+        self
+    }
+
+    /// 设置压缩类型，一般情况下请传入AnvilCompressionType，除非你知道你在做什么
+    pub fn compression_type<T: Into<u8>>(mut self, ty: T) -> Self {
+        self.compression_type = ty.into();
+        self
     }
 }
