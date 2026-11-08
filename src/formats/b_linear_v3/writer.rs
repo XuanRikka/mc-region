@@ -6,9 +6,10 @@ use byteorder::{BigEndian, WriteBytesExt};
 use xxhash_rust::xxh32::xxh32;
 use zerocopy::{IntoBytes};
 use zstd::stream::write::Encoder;
-
+use zstd::zstd_safe::{CCtx, CParameter, ResetDirective};
 use crate::b_linear_v3::structs::{BufferedLinearV3Config, EmptyBucketPolicy, Header};
 use crate::{RegionAccess, RegionWriter, Result};
+use crate::b_linear_v3::utils::zstd_err;
 
 pub struct BufferedLinearV3Writer
 {
@@ -25,13 +26,19 @@ impl RegionWriter for BufferedLinearV3Writer
         let mut src = std::io::repeat(0).take(128);
         std::io::copy(&mut src, writer)?;
 
+        let mut cctx: CCtx<'static> = CCtx::create();
+        cctx.set_parameter(CParameter::CompressionLevel(self.config.compression_level as i32))
+            .map_err(zstd_err)?;
+
+        self.set_zstd(&mut cctx)?;
+
         let position_table = match self.config.empty_bucket_policy
         {
             EmptyBucketPolicy::Write => {
-                self.write_chunk1(region, writer)
+                self.write_chunk1(region, writer, &mut cctx)
             }
             EmptyBucketPolicy::Skip => {
-                self.write_chunk2(region, writer)
+                self.write_chunk2(region, writer, &mut cctx)
             }
         }?;
 
@@ -78,8 +85,8 @@ impl BufferedLinearV3Writer
     }
 
     // write empty bucket
-    fn write_chunk1<R: RegionAccess, W: Write + Seek>(&self, region: &mut R, writer: &mut W)
-        -> Result<[u64; 16]>
+    fn write_chunk1<R: RegionAccess, W: Write + Seek>(&self, region: &mut R, writer: &mut W,
+                                                      cctx: &mut CCtx<'static>) -> Result<[u64; 16]>
     {
         let mut position_table = [0u64; 16];
 
@@ -92,7 +99,7 @@ impl BufferedLinearV3Writer
             position_table[bucket_index as usize] = bucket_pos;
 
             let mut encoder =
-                Encoder::new(&mut *writer, self.config.compression_level as i32)?;
+                Encoder::with_context(&mut *writer, &mut *cctx);
             for chunk_index in 0..64u16
             {
                 let global_index = bucket_index * 64 + chunk_index;
@@ -115,6 +122,7 @@ impl BufferedLinearV3Writer
                 encoder.write_all(chunk.raw_nbt())?;
             }
             encoder.finish()?;
+            cctx.reset(ResetDirective::SessionOnly).map_err(zstd_err)?;
 
             let end_pos = writer.stream_position()?;
 
@@ -130,8 +138,8 @@ impl BufferedLinearV3Writer
     }
 
     // skip empty bucket
-    fn write_chunk2<R: RegionAccess, W: Write + Seek>(&self, region: &mut R, writer: &mut W)
-                                                      -> Result<[u64; 16]>
+    fn write_chunk2<R: RegionAccess, W: Write + Seek>(&self, region: &mut R, writer: &mut W,
+                                                      cctx: &mut CCtx<'static>)-> Result<[u64; 16]>
     {
         let mut position_table = [0u64; 16];
 
@@ -153,21 +161,28 @@ impl BufferedLinearV3Writer
             writer.write_u64::<BigEndian>(0)?; // 占位 raw_len + com_len
             position_table[bucket_index as usize] = bucket_pos;
 
-            let mut raw_len = 4 * 64;
+            let raw_len = 4 * 64 + chunks.iter()
+                .filter(|c| !c.is_empty())
+                .map(|c| (c.raw_nbt().len() + 16) as u32)
+                .sum::<u32>();
+
             {
                 let mut encoder =
-                    Encoder::new(&mut *writer, self.config.compression_level as i32)?;
+                    Encoder::with_context(&mut *writer, &mut *cctx);
 
-                for chunk in &chunks
+                if self.config.auto_set_zstd_params
+                {
+                    encoder.set_pledged_src_size(Some(raw_len as u64))?;
+                }
+
+                for chunk in chunks
                 {
                     if chunk.is_empty()
                     {
                         encoder.write_u32::<BigEndian>(0)?;
                         continue
                     }
-                    let entry_size = (chunk.raw_nbt().len() + 4 + 8 + 4) as u32;
-                    encoder.write_u32::<BigEndian>(entry_size)?;
-                    raw_len += entry_size;
+                    encoder.write_u32::<BigEndian>((chunk.raw_nbt().len() + 16) as u32)?;
 
                     let checksum = xxh32(chunk.raw_nbt(), self.config.xxhash32_seed);
 
@@ -192,5 +207,18 @@ impl BufferedLinearV3Writer
         }
 
         Ok(position_table)
+    }
+
+    fn set_zstd(&self, cctx: &mut CCtx<'static>) -> Result<()> {
+        if let Some(v) = self.config.zstd_window_log {
+            cctx.set_parameter(CParameter::WindowLog(v)).map_err(zstd_err)?;
+        }
+        if let Some(v) = self.config.zstd_hash_log {
+            cctx.set_parameter(CParameter::HashLog(v)).map_err(zstd_err)?;
+        }
+        if let Some(v) = self.config.zstd_chain_log {
+            cctx.set_parameter(CParameter::ChainLog(v)).map_err(zstd_err)?;
+        }
+        Ok(())
     }
 }
