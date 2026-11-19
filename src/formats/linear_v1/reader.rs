@@ -1,16 +1,17 @@
 use std::{array, mem};
 use std::io::{BufReader, Read};
+use std::mem::replace;
 use zerocopy::FromBytes;
 use zstd::Decoder as ZstdDecoder;
 
 use crate::{xz_of, RegionError, Result, RegionAccess};
 use crate::linear_v1::structs::{Header, SuperBlock};
-use crate::linear_v1::utils::fill_slot;
+use crate::linear_v1::utils::{fill_slot, init_slot};
 use crate::structs::{Chunk, Slot, XzPos};
 use crate::traits::RegionRead;
 use crate::utils::skip;
 
-struct LinearV1Reader<'a>
+pub struct LinearV1Reader<'a>
 {
     pos: XzPos,
     data: &'a [u8],
@@ -122,18 +123,47 @@ impl RegionAccess for LinearV1Reader<'_>
         let Self {decoder,
             compressed_data, cursor, header,
             chunks, ..} = self;
-        (0..1024).map(move |i| {
-            fill_slot(i as u16, decoder, compressed_data, cursor, header, chunks, self.pos)?;
-            Ok(chunks[i].get_chunk())
+        chunks.iter_mut().enumerate().map(|(i, slot)| {
+            if slot.is_loaded()
+            {
+                return Ok(slot.get_chunk());
+            }
+            let chunk = init_slot(i as u16, decoder, compressed_data, cursor, header, self.pos)?;
+            let _ = replace(slot, chunk);
+            Ok(slot.get_chunk())
         })
     }
 
     fn chunks_mut(&mut self) -> impl Iterator<Item=Result<&mut Chunk>> {
-        todo!()
+        let Self {decoder,
+            compressed_data, cursor, header,
+            chunks, ..} = self;
+        chunks.iter_mut().enumerate().map(|(i, slot)| {
+            if slot.is_loaded()
+            {
+                return Ok(slot.get_chunk_mut());
+            }
+            let chunk = init_slot(i as u16, decoder, compressed_data, cursor, header, self.pos)?;
+            let _ = replace(slot, chunk);
+            Ok(slot.get_chunk_mut())
+        })
     }
 
     fn take_chunks(&mut self) -> impl Iterator<Item=Result<Chunk>> {
-        todo!()
+        let Self {decoder,
+            compressed_data, cursor, header,
+            chunks, ..} = self;
+        chunks.iter_mut().enumerate().map(|(i, slot)| {
+            if slot.is_loaded()
+            {
+                let slot_ = replace(slot, Slot::Pending);
+                return Ok(slot_.take_chunk());
+            }
+            let chunk = init_slot(i as u16, decoder, compressed_data, cursor, header, self.pos)?;
+            let _ = replace(slot, chunk);
+            let slot_ = replace(slot, Slot::Pending);
+            Ok(slot_.take_chunk())
+        })
     }
 
     fn contains_chunk(&mut self, x: i32, z: i32) -> Result<bool> {

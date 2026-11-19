@@ -11,6 +11,15 @@ impl Chunk {
         Chunk { pos, timestamp, raw_nbt }
     }
 
+    pub fn new_empty(pos: XzPos) -> Self
+    {
+        Chunk {
+            pos,
+            timestamp: 0,
+            raw_nbt: Vec::new()
+        }
+    }
+
     pub fn pos(&self) -> XzPos
     {
         self.pos

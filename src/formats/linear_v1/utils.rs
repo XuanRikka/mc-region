@@ -54,3 +54,52 @@ pub(crate) fn fill_slot<'a>(slot: u16,
 
     Ok(())
 }
+
+pub(crate) fn init_slot<'a>(slot: u16,
+                            decoder: &mut Option<ZstdDecoder<'static, BufReader<&'a [u8]>>>,
+                            compressed_data: &'a [u8], cursor: &mut u16, header: &Header,
+                            pos: XzPos
+) -> crate::Result<Slot>
+{
+    if decoder.is_none()
+    {
+        let mut cur = ZstdDecoder::new(compressed_data)?;
+        skip(&mut cur, 8192)?;
+        *decoder = Some(cur);
+        *cursor = 0;
+    }
+    let mut decoder = decoder.as_mut().unwrap();
+
+    let mut c_;
+    if *cursor >= slot
+    {
+        c_ = ZstdDecoder::new(compressed_data)?;
+        decoder = &mut c_;
+    }
+
+    let mut chunk = Slot::Loaded(Chunk::new_empty(xz_of(pos, slot)));
+    for i in 0..=slot as usize
+    {
+        let entry = &header.0[i];
+
+        if entry.chunk_size == 0
+        {
+            continue;
+        }
+
+        if *cursor == slot
+        {
+            let mut buf = vec![0u8; entry.chunk_size.get() as usize];
+            decoder.read_exact(&mut buf)?;
+            chunk = Slot::Loaded(Chunk::new(
+                xz_of(pos, slot),
+                entry.chunk_timestamp.get() as u64,
+                buf
+            ));
+            *cursor += 1;
+            break;
+        }
+    }
+
+    Ok(chunk)
+}
